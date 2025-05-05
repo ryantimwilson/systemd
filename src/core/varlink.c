@@ -3,6 +3,7 @@
 #include "sd-varlink.h"
 
 #include "dynamic-user.h"
+#include "format-util.h"
 #include "json-util.h"
 #include "manager.h"
 #include "metrics.h"
@@ -645,7 +646,7 @@ static int vl_method_get_metrics(sd_varlink *link, sd_json_variant *parameters, 
         } p;
 
         static const sd_json_dispatch_field dispatch_table[] = {
-                { "Pattern", SD_JSON_VARIANT_STRING, sd_json_dispatch_const_string, voffsetof(p, pattern), 0 },
+                { "Pattern", SD_JSON_VARIANT_STRING, sd_json_dispatch_const_string, voffsetof(p, pattern), SD_JSON_NULLABLE },
                 {}
         };
 
@@ -704,6 +705,9 @@ static int manager_varlink_init_system(Manager *m) {
 }
 
 static int manager_varlink_init_user(Manager *m) {
+        _cleanup_free_ char *private_metrics_dir = NULL, *private_metrics_sock = NULL;
+        int r;
+
         assert(m);
 
         if (!MANAGER_IS_USER(m))
@@ -712,13 +716,21 @@ static int manager_varlink_init_user(Manager *m) {
         if (MANAGER_IS_TEST_RUN(m))
                 return 0;
 
-        return manager_varlink_managed_oom_connect(m);
-        // TODO: Make metrics server work for user manager
-        //if (r < 0)
-        //        return r;
+        r = manager_varlink_managed_oom_connect(m);
+        if (r < 0)
+                return r;
 
-        //(void) mkdir_label("/run/user/<UID>/systemd/metrics", 0755);
-        //return metrics_setup_varlink_server(&m->metrics_varlink_server, m->event, vl_method_get_metrics, m, "/run/user/<UID>/systemd/metrics/io.systemd.System");
+        r = get_metrics_varlink_dir(&private_metrics_dir, true);
+        if (r < 0)
+                return r;
+
+        (void) mkdir_label(private_metrics_dir, 0755);
+
+        private_metrics_sock = path_join(private_metrics_dir, "io.systemd.System");
+        if (!private_metrics_sock)
+                return -ENOMEM;
+
+        return metrics_setup_varlink_server(&m->metrics_varlink_server, m->event, vl_method_get_metrics, m, private_metrics_sock);
 }
 
 int manager_varlink_init(Manager *m) {

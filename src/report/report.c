@@ -8,6 +8,7 @@
 #include "metrics.h"
 
 static char* arg_pattern = NULL;
+static bool is_user = false;
 
 STATIC_DESTRUCTOR_REGISTER(arg_pattern, freep);
 
@@ -17,7 +18,8 @@ static int help(void) {
                "Print metrics for all systemd components .\n\n"
                "  -h --help             Show this help\n"
                "     --version          Show package version\n"
-               "  -p --pattern          Only return metrics matching this glob pattern\n",
+               "     --pattern          Only return metrics matching this glob pattern\n"
+               "     --user             Query user varlink sockets\n",
                program_invocation_short_name);
 
         return 0;
@@ -26,13 +28,16 @@ static int help(void) {
 static int parse_argv(int argc, char *argv[]) {
 
         enum {
-                ARG_VERSION = 0x100
+                ARG_VERSION = 0x100,
+                ARG_PATTERN,
+                ARG_USER
         };
 
         static const struct option options[] = {
                 { "help",          no_argument,       NULL, 'h'               },
                 { "version",       no_argument,       NULL, ARG_VERSION       },
-                { "pattern",       required_argument, NULL, 'p'               },
+                { "pattern",       required_argument, NULL, ARG_PATTERN       },
+                { "user",          no_argument,       NULL, ARG_USER          },
                 {}
         };
 
@@ -41,7 +46,7 @@ static int parse_argv(int argc, char *argv[]) {
         assert(argc >= 0);
         assert(argv);
 
-        while ((c = getopt_long(argc, argv, "hp", options, NULL)) >= 0)
+        while ((c = getopt_long(argc, argv, "h", options, NULL)) >= 0)
 
                 switch (c) {
 
@@ -51,7 +56,7 @@ static int parse_argv(int argc, char *argv[]) {
                 case ARG_VERSION:
                         return version();
 
-                case 'p':
+                case ARG_PATTERN:
                         if (isempty(optarg))
                                 arg_pattern = mfree(arg_pattern);
                         else {
@@ -61,17 +66,16 @@ static int parse_argv(int argc, char *argv[]) {
                         }
                         break;
 
+                case ARG_USER:
+                        is_user = true;
+                        break;
+
                 case '?':
                         return -EINVAL;
 
                 default:
                         assert_not_reached();
                 }
-
-        if (optind < argc)
-                return log_error_errno(SYNTHETIC_ERRNO(EINVAL),
-                                       "%s takes no arguments.",
-                                       program_invocation_short_name);
 
         return 1;
 }
@@ -91,7 +95,7 @@ static int run(int argc, char *argv[]) {
                 return r;
 
 
-        r = metrics_query_all(&ret, arg_pattern);
+        r = metrics_query_all(&ret, arg_pattern, is_user);
         if (r < 0)
                 return r;
 

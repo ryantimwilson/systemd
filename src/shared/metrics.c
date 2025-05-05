@@ -1,5 +1,6 @@
 #include "dirent-util.h"
 #include "fd-util.h"
+#include "format-util.h"
 #include "log.h"
 #include "metrics.h"
 #include "varlink-io.systemd.Metrics.h"
@@ -101,7 +102,10 @@ static int metrics_connect(MetricsIterator *iterator, const char *path, const ch
         if (r < 0)
                 return log_debug_errno(r, "Failed to bind reply callback: %m");
 
-        r = sd_varlink_invokeb(vl, "io.systemd.Metrics.GetMetrics", SD_JSON_BUILD_OBJECT(SD_JSON_BUILD_PAIR_CONDITION(!isempty(pattern), "Pattern", SD_JSON_BUILD_STRING(pattern))));
+        if (isempty(pattern))
+                r = sd_varlink_invokeb(vl, "io.systemd.Metrics.GetMetrics", SD_JSON_BUILD_OBJECT(SD_JSON_BUILD_PAIR("Pattern", SD_JSON_BUILD_NULL)));
+        else
+                r = sd_varlink_invokeb(vl, "io.systemd.Metrics.GetMetrics", SD_JSON_BUILD_OBJECT(SD_JSON_BUILD_PAIR("Pattern", SD_JSON_BUILD_STRING(pattern))));
         if (r < 0)
                 return log_debug_errno(r, "Failed to invoke varlink method: %m");
 
@@ -111,13 +115,30 @@ static int metrics_connect(MetricsIterator *iterator, const char *path, const ch
         return r;
 }
 
-static int metrics_start_query(MetricsIterator *iterator, const char *pattern) {
+int get_metrics_varlink_dir(char **ret, bool is_user) {
+        if (is_user) {
+                if (asprintf(ret, "/run/user/" UID_FMT "/systemd/metrics", geteuid()) < 0)
+                        return -ENOMEM;
+        } else {
+                *ret = strdup("/run/systemd/metrics/");
+                if (!*ret)
+                        return -ENOMEM;
+        }
+        return 0;
+}
+
+static int metrics_start_query(MetricsIterator *iterator, const char *pattern, bool is_user) {
         _cleanup_closedir_ DIR *d = NULL;
+        _cleanup_free_ char *metrics_varlink_dir = NULL;
         int r;
 
         assert(iterator);
 
-        d = opendir("/run/systemd/metrics/");
+        r = get_metrics_varlink_dir(&metrics_varlink_dir, is_user);
+        if (r < 0)
+                return r;
+
+        d = opendir(metrics_varlink_dir);
         if (!d) {
                 if (errno == ENOENT)
                         return -ESRCH;
@@ -128,7 +149,7 @@ static int metrics_start_query(MetricsIterator *iterator, const char *pattern) {
         FOREACH_DIRENT(de, d, return -errno) {
                 _cleanup_free_ char *p = NULL;
 
-                p = path_join("/run/systemd/metrics/", de->d_name);
+                p = path_join(metrics_varlink_dir, de->d_name);
                 if (!p)
                         return -ENOMEM;
 
@@ -198,7 +219,7 @@ int metrics_setup_varlink_server(sd_varlink_server **m, sd_event *event, sd_varl
         return 0;
 }
 
-int metrics_query_all(sd_json_variant **ret, const char *pattern) {
+int metrics_query_all(sd_json_variant **ret, const char *pattern, bool is_user) {
         _cleanup_(metrics_iterator_freep) MetricsIterator *iterator = NULL;
         int r;
 
@@ -208,7 +229,7 @@ int metrics_query_all(sd_json_variant **ret, const char *pattern) {
         if (!iterator)
                 return -ENOMEM;
 
-        r = metrics_start_query(iterator, pattern);
+        r = metrics_start_query(iterator, pattern, is_user);
         if (r < 0)
                 return r;
 
@@ -216,8 +237,8 @@ int metrics_query_all(sd_json_variant **ret, const char *pattern) {
 }
 
 int metrics_fnmatch(const char* pattern, const char* name) {
-        if (!pattern)
-                return true;
+        if (isempty(pattern))
+                return 0;
 
         return fnmatch(pattern, name, FNM_CASEFOLD);
 }

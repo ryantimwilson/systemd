@@ -2,7 +2,9 @@
 
 #include "varlink-io.systemd.Metrics.h"
 
-static SD_VARLINK_DEFINE_METHOD(GetMetrics);
+static SD_VARLINK_DEFINE_METHOD(GetMetrics,
+                                SD_VARLINK_FIELD_COMMENT("Glob pattern to match metric names"),
+                                SD_VARLINK_DEFINE_INPUT(Pattern, SD_VARLINK_STRING, SD_VARLINK_NULLABLE));
 
 SD_VARLINK_DEFINE_INTERFACE(
                 io_systemd_Metrics,
