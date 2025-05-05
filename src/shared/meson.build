@@ -119,6 +119,7 @@ shared_sources = files(
         'machine-id-setup.c',
         'machine-pool.c',
         'macvlan-util.c',
+        'metrics.c',
         'mkdir-label.c',
         'mkfs-util.c',
         'module-util.c',

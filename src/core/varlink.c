@@ -5,6 +5,7 @@
 #include "dynamic-user.h"
 #include "json-util.h"
 #include "manager.h"
+#include "metrics.h"
 #include "mkdir-label.h"
 #include "strv.h"
 #include "unit.h"
@@ -631,6 +632,22 @@ int manager_setup_varlink_server(Manager *m) {
         return 1;
 }
 
+static int vl_method_get_metrics(sd_varlink *link, sd_json_variant *parameters, sd_varlink_method_flags_t flags, void *userdata) {
+        Manager *m = ASSERT_PTR(userdata);
+        int r;
+
+        assert(link);
+        assert(m->units);
+
+        r = sd_varlink_dispatch(link, parameters, /* dispatch_table= */ NULL, /* userdata= */ NULL);
+        if (r != 0)
+                return r;
+
+        return sd_varlink_replybo(
+                link,
+                SD_JSON_BUILD_PAIR("units.active_units", SD_JSON_BUILD_INTEGER(hashmap_size(m->units))));
+}
+
 static int manager_varlink_init_system(Manager *m) {
         int r;
 
@@ -668,6 +685,11 @@ static int manager_varlink_init_system(Manager *m) {
                 }
         }
 
+        (void) mkdir_label("/run/systemd/metrics", 0755);
+        r = metrics_setup_varlink_server(&m->metrics_varlink_server, m->event, vl_method_get_metrics, m, "/run/systemd/metrics/io.systemd.System");
+        if (r < 0)
+                return log_error_errno(r, "Failed to set up metrics varlink server: %m");
+
         return 1;
 }
 
@@ -681,6 +703,12 @@ static int manager_varlink_init_user(Manager *m) {
                 return 0;
 
         return manager_varlink_managed_oom_connect(m);
+        // TODO: Make metrics server work for user manager
+        //if (r < 0)
+        //        return r;
+
+        //(void) mkdir_label("/run/user/<UID>/systemd/metrics", 0755);
+        //return metrics_setup_varlink_server(&m->metrics_varlink_server, m->event, vl_method_get_metrics, m, "/run/user/<UID>/systemd/metrics/io.systemd.System");
 }
 
 int manager_varlink_init(Manager *m) {
@@ -698,4 +726,5 @@ void manager_varlink_done(Manager *m) {
 
         m->varlink_server = sd_varlink_server_unref(m->varlink_server);
         m->managed_oom_varlink = sd_varlink_close_unref(m->managed_oom_varlink);
+        m->metrics_varlink_server = sd_varlink_server_unref(m->metrics_varlink_server);
 }

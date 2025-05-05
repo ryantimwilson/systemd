@@ -10,6 +10,7 @@
 #include "logind-session-dbus.h"
 #include "logind-user.h"
 #include "logind-varlink.h"
+#include "metrics.h"
 #include "terminal-util.h"
 #include "user-util.h"
 #include "varlink-io.systemd.Login.h"
@@ -365,8 +366,7 @@ int manager_varlink_init(Manager *m) {
         r = sd_varlink_server_add_interface_many(
                         s,
                         &vl_interface_io_systemd_Login,
-                        &vl_interface_io_systemd_service,
-                        &vl_interface_io_systemd_Metrics);
+                        &vl_interface_io_systemd_service);
         if (r < 0)
                 return log_error_errno(r, "Failed to add Login interface to varlink server: %m");
 
@@ -376,8 +376,7 @@ int manager_varlink_init(Manager *m) {
                         "io.systemd.Login.ReleaseSession",   vl_method_release_session,
                         "io.systemd.service.Ping",           varlink_method_ping,
                         "io.systemd.service.SetLogLevel",    varlink_method_set_log_level,
-                        "io.systemd.service.GetEnvironment", varlink_method_get_environment,
-                        "io.systemd.metrics.GetMetrics",     vl_method_get_metrics);
+                        "io.systemd.service.GetEnvironment", varlink_method_get_environment);
         if (r < 0)
                 return log_error_errno(r, "Failed to register varlink methods: %m");
 
@@ -390,6 +389,11 @@ int manager_varlink_init(Manager *m) {
                 return log_error_errno(r, "Failed to attach varlink connection to event loop: %m");
 
         m->varlink_server = TAKE_PTR(s);
+
+        r = metrics_setup_varlink_server(&m->metrics_varlink_server, m->event, vl_method_get_metrics, m, "/run/systemd/metrics/io.systemd.Login");
+        if (r < 0)
+                return log_error_errno(r, "Failed to set up metrics varlink server: %m");
+
         return 0;
 }
 
@@ -397,4 +401,5 @@ void manager_varlink_done(Manager *m) {
         assert(m);
 
         m->varlink_server = sd_varlink_server_unref(m->varlink_server);
+        m->metrics_varlink_server = sd_varlink_server_unref(m->metrics_varlink_server);
 }
