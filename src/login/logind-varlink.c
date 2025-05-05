@@ -13,6 +13,7 @@
 #include "terminal-util.h"
 #include "user-util.h"
 #include "varlink-io.systemd.Login.h"
+#include "varlink-io.systemd.Metrics.h"
 #include "varlink-io.systemd.service.h"
 #include "varlink-util.h"
 
@@ -322,6 +323,26 @@ static int vl_method_release_session(sd_varlink *link, sd_json_variant *paramete
         return sd_varlink_reply(link, NULL);
 }
 
+static int vl_method_get_metrics(sd_varlink *link, sd_json_variant *parameters, sd_varlink_method_flags_t flags, void *userdata) {
+        Manager *m = ASSERT_PTR(userdata);
+        int r;
+
+        assert(link);
+        assert(m->sessions);
+        assert(m->users);
+        assert(m->seats);
+
+        r = sd_varlink_dispatch(link, parameters, /* dispatch_table= */ NULL, /* userdata= */ NULL);
+        if (r != 0)
+                return r;
+
+        return sd_varlink_replybo(
+                link,
+                SD_JSON_BUILD_PAIR("logind.session_count", SD_JSON_BUILD_INTEGER(hashmap_size(m->sessions))),
+                SD_JSON_BUILD_PAIR("logind.user_count", SD_JSON_BUILD_INTEGER(hashmap_size(m->users))),
+                SD_JSON_BUILD_PAIR("logind.seat_count", SD_JSON_BUILD_INTEGER(hashmap_size(m->seats))));
+}
+
 int manager_varlink_init(Manager *m) {
         _cleanup_(sd_varlink_server_unrefp) sd_varlink_server *s = NULL;
         int r;
@@ -344,7 +365,8 @@ int manager_varlink_init(Manager *m) {
         r = sd_varlink_server_add_interface_many(
                         s,
                         &vl_interface_io_systemd_Login,
-                        &vl_interface_io_systemd_service);
+                        &vl_interface_io_systemd_service,
+                        &vl_interface_io_systemd_Metrics);
         if (r < 0)
                 return log_error_errno(r, "Failed to add Login interface to varlink server: %m");
 
@@ -354,7 +376,8 @@ int manager_varlink_init(Manager *m) {
                         "io.systemd.Login.ReleaseSession",   vl_method_release_session,
                         "io.systemd.service.Ping",           varlink_method_ping,
                         "io.systemd.service.SetLogLevel",    varlink_method_set_log_level,
-                        "io.systemd.service.GetEnvironment", varlink_method_get_environment);
+                        "io.systemd.service.GetEnvironment", varlink_method_get_environment,
+                        "io.systemd.metrics.GetMetrics",     vl_method_get_metrics);
         if (r < 0)
                 return log_error_errno(r, "Failed to register varlink methods: %m");
 
