@@ -324,6 +324,8 @@ static int vl_method_release_session(sd_varlink *link, sd_json_variant *paramete
         return sd_varlink_reply(link, NULL);
 }
 
+
+
 static int vl_method_get_metrics(sd_varlink *link, sd_json_variant *parameters, sd_varlink_method_flags_t flags, void *userdata) {
         Manager *m = ASSERT_PTR(userdata);
         int r;
@@ -333,15 +335,24 @@ static int vl_method_get_metrics(sd_varlink *link, sd_json_variant *parameters, 
         assert(m->users);
         assert(m->seats);
 
-        r = sd_varlink_dispatch(link, parameters, /* dispatch_table= */ NULL, /* userdata= */ NULL);
+        struct {
+                const char *pattern;
+        } p;
+
+        static const sd_json_dispatch_field dispatch_table[] = {
+                { "Pattern", SD_JSON_VARIANT_STRING, sd_json_dispatch_const_string, voffsetof(p, pattern), 0 },
+                {}
+        };
+
+        r = sd_varlink_dispatch(link, parameters, dispatch_table, &p);
         if (r != 0)
                 return r;
 
         return sd_varlink_replybo(
                 link,
-                SD_JSON_BUILD_PAIR("logind.session_count", SD_JSON_BUILD_INTEGER(hashmap_size(m->sessions))),
-                SD_JSON_BUILD_PAIR("logind.user_count", SD_JSON_BUILD_INTEGER(hashmap_size(m->users))),
-                SD_JSON_BUILD_PAIR("logind.seat_count", SD_JSON_BUILD_INTEGER(hashmap_size(m->seats))));
+                SD_JSON_BUILD_METRIC(p.pattern, "logind.session_count", SD_JSON_BUILD_INTEGER(hashmap_size(m->sessions))),
+                SD_JSON_BUILD_METRIC(p.pattern, "logind.user_count", SD_JSON_BUILD_INTEGER(hashmap_size(m->users))),
+                SD_JSON_BUILD_METRIC(p.pattern, "logind.user_count", SD_JSON_BUILD_INTEGER(hashmap_size(m->seats))));
 }
 
 int manager_varlink_init(Manager *m) {

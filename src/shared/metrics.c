@@ -74,7 +74,7 @@ finish:
         return 0;
 }
 
-static int metrics_connect(MetricsIterator *iterator, const char *path) {
+static int metrics_connect(MetricsIterator *iterator, const char *path, const char *pattern) {
         _cleanup_(sd_varlink_unrefp) sd_varlink *vl = NULL;
         int r;
 
@@ -101,7 +101,7 @@ static int metrics_connect(MetricsIterator *iterator, const char *path) {
         if (r < 0)
                 return log_debug_errno(r, "Failed to bind reply callback: %m");
 
-        r = sd_varlink_invoke(vl, "io.systemd.Metrics.GetMetrics", NULL);
+        r = sd_varlink_invokeb(vl, "io.systemd.Metrics.GetMetrics", SD_JSON_BUILD_OBJECT(SD_JSON_BUILD_PAIR_CONDITION(!isempty(pattern), "Pattern", SD_JSON_BUILD_STRING(pattern))));
         if (r < 0)
                 return log_debug_errno(r, "Failed to invoke varlink method: %m");
 
@@ -111,7 +111,7 @@ static int metrics_connect(MetricsIterator *iterator, const char *path) {
         return r;
 }
 
-static int metrics_start_query(MetricsIterator *iterator) {
+static int metrics_start_query(MetricsIterator *iterator, const char *pattern) {
         _cleanup_closedir_ DIR *d = NULL;
         int r;
 
@@ -132,7 +132,7 @@ static int metrics_start_query(MetricsIterator *iterator) {
                 if (!p)
                         return -ENOMEM;
 
-                r = metrics_connect(iterator, p);
+                r = metrics_connect(iterator, p, pattern);
                 if (r < 0)
                         return r;
         }
@@ -198,7 +198,7 @@ int metrics_setup_varlink_server(sd_varlink_server **m, sd_event *event, sd_varl
         return 0;
 }
 
-int metrics_query_all(sd_json_variant **ret) {
+int metrics_query_all(sd_json_variant **ret, const char *pattern) {
         _cleanup_(metrics_iterator_freep) MetricsIterator *iterator = NULL;
         int r;
 
@@ -208,9 +208,16 @@ int metrics_query_all(sd_json_variant **ret) {
         if (!iterator)
                 return -ENOMEM;
 
-        r = metrics_start_query(iterator);
+        r = metrics_start_query(iterator, pattern);
         if (r < 0)
                 return r;
 
         return metrics_process(iterator, ret);
+}
+
+int metrics_fnmatch(const char* pattern, const char* name) {
+        if (!pattern)
+                return true;
+
+        return fnmatch(pattern, name, FNM_CASEFOLD);
 }

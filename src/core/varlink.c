@@ -639,13 +639,23 @@ static int vl_method_get_metrics(sd_varlink *link, sd_json_variant *parameters, 
         assert(link);
         assert(m->units);
 
-        r = sd_varlink_dispatch(link, parameters, /* dispatch_table= */ NULL, /* userdata= */ NULL);
+
+        struct {
+                const char *pattern;
+        } p;
+
+        static const sd_json_dispatch_field dispatch_table[] = {
+                { "Pattern", SD_JSON_VARIANT_STRING, sd_json_dispatch_const_string, voffsetof(p, pattern), 0 },
+                {}
+        };
+
+        r = sd_varlink_dispatch(link, parameters, dispatch_table, &p);
         if (r != 0)
                 return r;
 
         return sd_varlink_replybo(
                 link,
-                SD_JSON_BUILD_PAIR("units.active_units", SD_JSON_BUILD_INTEGER(hashmap_size(m->units))));
+                SD_JSON_BUILD_METRIC(p.pattern, "units.active_units", SD_JSON_BUILD_INTEGER(hashmap_size(m->units))));
 }
 
 static int manager_varlink_init_system(Manager *m) {
